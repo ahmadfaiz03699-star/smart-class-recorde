@@ -1,0 +1,196 @@
+{
+  "app_name": "Ahmad Classes",
+  "personality": "4 Tactile / Playful LIGHT",
+  "personality_one_liner": "A vibrant, approachable, and tactile coaching companion that makes rigorous learning feel engaging rather than intimidating.",
+  "color": {
+    "surface": "#F9FAFB",
+    "onSurface": "#111827",
+    "surfaceSecondary": "#FFFFFF",
+    "onSurfaceSecondary": "#111827",
+    "surfaceTertiary": "#F3F4F6",
+    "onSurfaceTertiary": "#374151",
+    "surfaceInverse": "#111827",
+    "onSurfaceInverse": "#F9FAFB",
+    "brand": "#059669",
+    "brandPrimary": "#059669",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#E11D48",
+    "onBrandSecondary": "#FFFFFF",
+    "brandTertiary": "#D1FAE5",
+    "onBrandTertiary": "#065F46",
+    "success": "#10B981",
+    "onSuccess": "#FFFFFF",
+    "warning": "#F59E0B",
+    "onWarning": "#FFFFFF",
+    "error": "#EF4444",
+    "onError": "#FFFFFF",
+    "info": "#6B7280",
+    "onInfo": "#FFFFFF",
+    "border": "#E5E7EB",
+    "borderStrong": "#D1D5DB",
+    "divider": "#F3F4F6",
+    "muted": "#6B7280",
+    "onBrand": "#FFFFFF"
+  },
+  "typography": {
+    "displayFontFamily": "Figtree",
+    "textFontFamily": "Nunito",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Use playful, generous spacing. Maintain clear hit slops for all interactive areas. Avoid tight dashboard-like clustering. Let elements breathe with 'md' (12) and 'lg' (16) inner padding inside cards, and 'xl' (24) between sections.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 20,
+    "pill": 999
+  },
+  "shadow_tier": "2",
+  "navigation": "bottom_tabs",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": "true",
+    "do's": [
+      "Apply to the bottom tab bar, AI Tutor floating action button (FAB), and bottom-sheet headers.",
+      "Use as a backdrop for the live-poll overlay modal to maintain context of the video behind it.",
+      "Ensure text on glass always uses onSurfaceInverse or has a ≥70% tinted underlay."
+    ],
+    "dont's": [
+      "Never blur body content, quiz question texts, or standard cards in a list.",
+      "Do not use glass for the primary Quiz 'Submit' button; it needs solid tactile presence."
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "StudentHome",
+      "purpose": "A welcoming dashboard guiding the student to their immediate next learning goal.",
+      "states": {
+        "loading": "Skeleton loaders for horizontal rails.",
+        "empty": "Illustration with prompt to explore the Batch Marketplace.",
+        "error": "Failed to load dashboard data. Retry CTA."
+      },
+      "layout": "Header with 'Hello, [Name]' and initials avatar. A primary 'Explore' search bar. A prominent 'Upcoming Live Class' hero card (using background image and vertical gradient scrim). Below it, horizontal scroll rails for 'My Batches' and 'Recent Quiz Scores'. A floating action button (FAB) for the AI Tutor in the bottom right."
+    },
+    {
+      "name": "LiveClass",
+      "purpose": "Distraction-free environment for attending live sessions, asking doubts, and participating in real-time polls.",
+      "states": {
+        "loading": "Spinner centered on the video area.",
+        "empty": "Stream not started yet (waiting room state).",
+        "error": "Connection lost. Reconnect button."
+      },
+      "layout": "Fixed 16:9 video player at the top. Below, a tabbed interface (Chat / Notes). Chat uses a scrollable feed with an input area locked above the keyboard. When Admin triggers a Poll, a Bottom Sheet slides up over the lower half, presenting large, pill-shaped multiple-choice options for quick, error-free tapping."
+    },
+    {
+      "name": "RecordedLibrary",
+      "purpose": "Structured archive for past classes and PDF notes categorized by subject.",
+      "states": {
+        "loading": "Skeleton grid of subject cards.",
+        "empty": "No recorded classes available for this batch.",
+        "error": "Unable to fetch content."
+      },
+      "layout": "Top toggle (Videos / Notes). A 2-column grid of subject cards (e.g., Physics, Maths, Biology). Each card uses a tinted background (brandTertiary) and a large filled Phosphor icon. Tapping opens a vertical list of recorded sessions with high-value metadata (duration, instructor, date)."
+    },
+    {
+      "name": "QuizScreen",
+      "purpose": "Focused, timer-driven assessment module.",
+      "states": {
+        "loading": "Loading questions...",
+        "empty": "No quiz assigned.",
+        "error": "Failed to submit quiz."
+      },
+      "layout": "Completely distraction-free. Top header has a fixed countdown timer and progress bar. Single question per screen. Large, tactile pill-shaped options (using borderStrong outline, filling to brandPrimary on selection). A sticky 'Next' or 'Submit' button pinned at the safe area bottom. Includes instant haptic feedback on selection."
+    },
+    {
+      "name": "BatchMarketplaceDetail",
+      "purpose": "Showcase a course batch to convince students to enroll or purchase.",
+      "states": {
+        "loading": "Loading batch details...",
+        "empty": "Batch no longer available.",
+        "error": "Error loading course info."
+      },
+      "layout": "Edge-to-edge hero image (batch_hero) with a vertical gradient scrim (transparent to surface). Large course title, rating, and total lessons sitting in the darkest part of the scrim. Below, scrollable content detailing syllabus and instructor profiles. Sticky 'Buy Batch' primary CTA at the bottom outside the scroll view."
+    },
+    {
+      "name": "AITutorBottomSheet",
+      "purpose": "On-demand contextual help and file analysis interface.",
+      "states": {
+        "loading": "AI is analyzing...",
+        "empty": "Start a conversation.",
+        "error": "AI service unavailable."
+      },
+      "layout": "Triggered via FAB. Bottom sheet sliding up over the current screen. Shows a greeting from the AI, horizontally scrollable suggested prompt pills, and a chat interface. Includes an 'Upload PDF' action for file analysis."
+    },
+    {
+      "name": "AdminDashboard",
+      "purpose": "Command center for the institute admin to manage content and live sessions.",
+      "states": {
+        "loading": "Loading admin stats...",
+        "empty": "N/A",
+        "error": "Failed to load admin controls."
+      },
+      "layout": "Analytics overview at the top (active students, active batches). A grid of quick-action square tiles: 'Start Live Class', 'Upload Notes', 'Create Quiz', 'Manage Batches'. Clean, utilitarian but following the playful card radii and spacing."
+    }
+  ],
+  "images": {
+    "home_hero": {
+      "url": "https://images.unsplash.com/photo-1515378960530-7c0da6231fb1?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHwxfHxzdHVkZW50JTIwc3R1ZHlpbmclMjBsYXB0b3B8ZW58MHx8fHwxNzg4ODc1MTI0fDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Student studying on a laptop"
+    },
+    "batch_hero": {
+      "url": "https://images.pexels.com/photos/7548729/pexels-photo-7548729.jpeg",
+      "alt": "Student engaging with an online learning tablet"
+    },
+    "subject_physics": {
+      "url": "https://images.unsplash.com/photo-1635372722656-389f87a941b7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2OTV8MHwxfHNlYXJjaHwxfHxwaHlzaWNzJTIwc2NpZW5jZSUyMGxhYiUyMGZvcm11bGF8ZW58MHx8fHwxNzg4ODc1MTE5fDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Blackboard filled with physics formulas"
+    },
+    "empty_state": {
+      "url": "https://images.pexels.com/photos/8251117/pexels-photo-8251117.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Clean desk with an empty notebook"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Strictly follow the Tactile/Playful (Personality 4) spacing scale: generous paddings, pill-shaped primary buttons, and lg radii (20) for cards.",
+    "Do NOT use Emojis anywhere in the UI. Use filled Phosphor icons for categories, navigation, and badges.",
+    "Implement the 'Sticky primary CTA' rule over scrolling content for the Quiz Submit button, and the Batch Marketplace Buy button. Do not nest them inside the ScrollView.",
+    "When placing text over the 'home_hero' or 'batch_hero' images, you MUST use a vertical linear-gradient scrim (transparent at 0% to surfaceInverse at 100%) to ensure WCAG AA contrast.",
+    "Use a Bottom Sheet modal (@gorhom/bottom-sheet) for Live Polls during class and for the AI Tutor. This keeps the UI distraction-free without forcing full-screen context switches.",
+    "Ensure 'Live Class' chat has a keyboard-avoiding view so the text input remains visible when typing, while the video player remains pinned at the top.",
+    "Avoid banned colors: No blues, indigos, purples, or oranges. Rely on the Emerald (brand) and Rose (brandSecondary) palette.",
+    "Use high-contrast skeletons for loading states in the horizontal rails on the student dashboard, maintaining the shape of the eventual cards."
+  ],
+  "haptics": {
+    "primary_button_press": "impactLight",
+    "quiz_option_select": "selection",
+    "tab_change": "selection",
+    "poll_submit": "notificationSuccess",
+    "pull_to_refresh": "impactMedium"
+  }
+}
