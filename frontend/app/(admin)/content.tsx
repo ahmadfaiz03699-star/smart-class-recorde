@@ -1,25 +1,57 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
-  View, Text, StyleSheet, ScrollView, TextInput, Pressable, Alert,
+  View, Text, StyleSheet, ScrollView, TextInput, Pressable, ActivityIndicator,
   KeyboardAvoidingView, Platform,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
 import Icon from "@react-native-vector-icons/material-design-icons";
 import { API } from "@/src/api";
 import { colors } from "@/src/theme-tokens";
+import { notify, confirm } from "@/src/utils/notify";
 
 type Tab = "upload" | "quiz";
 
+const formatSize = (bytes?: number) => {
+  if (!bytes) return "";
+  if (bytes > 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${Math.round(bytes / 1024)} KB`;
+};
+
 export default function AdminContent() {
   const insets = useSafeAreaInsets();
-  const [tab, setTab] = useState<Tab>("upload");
+  const params = useLocalSearchParams<{ tab?: string }>();
+  const [tab, setTab] = useState<Tab>(params.tab === "quiz" ? "quiz" : "upload");
+  const [banner, setBanner] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
+  useEffect(() => {
+    if (params.tab === "quiz" || params.tab === "upload") setTab(params.tab);
+  }, [params.tab]);
+
+  const showBanner = (type: "ok" | "err", text: string) => {
+    setBanner({ type, text });
+    setTimeout(() => setBanner(null), 4000);
+  };
 
   // Upload
   const [title, setTitle] = useState("");
   const [subject, setSubject] = useState("Physics");
   const [file, setFile] = useState<any>(null);
   const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [notes, setNotes] = useState<any[]>([]);
+
+  const loadNotes = useCallback(async () => {
+    try {
+      const { data } = await API.get("/notes");
+      setNotes(data || []);
+    } catch {
+      // list is informational; keep silent
+    }
+  }, []);
+
+  useFocusEffect(useCallback(() => { loadNotes(); }, [loadNotes]));
 
   // Quiz
   const [qTitle, setQTitle] = useState("");
@@ -27,45 +59,70 @@ export default function AdminContent() {
   const [qDuration, setQDuration] = useState("300");
   const [aiTopic, setAiTopic] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
+  const [savingQuiz, setSavingQuiz] = useState(false);
   const [questions, setQuestions] = useState<any[]>([
     { q: "", options: ["", "", "", ""], correct_index: 0 },
   ]);
 
   const pickFile = async () => {
-    const res = await DocumentPicker.getDocumentAsync({
-      type: ["application/pdf", "video/*", "image/*"],
-      copyToCacheDirectory: true,
-    });
-    if (!res.canceled && res.assets?.[0]) setFile(res.assets[0]);
+    try {
+      const res = await DocumentPicker.getDocumentAsync({
+        type: ["application/pdf", "video/*", "image/*"],
+        copyToCacheDirectory: true,
+      });
+      if (!res.canceled && res.assets?.[0]) setFile(res.assets[0]);
+    } catch {
+      notify("Error", "Could not open file picker");
+    }
   };
 
   const upload = async () => {
-    if (!file || !title.trim()) return Alert.alert("Missing", "Pick a file and add title");
+    if (!title.trim()) return notify("Missing title", "Please enter a title for this file.");
+    if (!file) return notify("No file selected", "Tap 'Pick a PDF or video file' first.");
     setUploading(true);
+    setProgress(0);
     try {
       const form = new FormData();
-      const kind = (file.mimeType || "").includes("pdf") ? "pdf" : "video";
+      const mime = file.mimeType || "";
+      const kind = mime.includes("pdf") || (file.name || "").toLowerCase().endsWith(".pdf") ? "pdf" : "video";
+      const fallbackType = kind === "pdf" ? "application/pdf" : "video/mp4";
       if (Platform.OS === "web") {
-        const blob = await (await fetch(file.uri)).blob();
-        form.append("file", blob, file.name || "file.pdf");
+        const blob = file.file instanceof Blob ? file.file : await (await fetch(file.uri)).blob();
+        form.append("file", blob, file.name || `file.${kind === "pdf" ? "pdf" : "mp4"}`);
       } else {
-        form.append("file", { uri: file.uri, name: file.name || "file.pdf", type: file.mimeType || "application/pdf" } as any);
+        form.append("file", { uri: file.uri, name: file.name || `file.${kind === "pdf" ? "pdf" : "mp4"}`, type: mime || fallbackType } as any);
       }
       form.append("title", title.trim());
       form.append("subject", subject);
       form.append("kind", kind);
-      await fetch(`${process.env.EXPO_PUBLIC_BACKEND_URL}/api/upload`, {
-        method: "POST",
-        body: form,
-      }).then((r) => {
-        if (!r.ok) throw new Error("upload failed");
+      await API.post("/upload", form, {
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: 10 * 60 * 1000,
+        onUploadProgress: (ev) => {
+          if (ev.total) setProgress(Math.round((ev.loaded / ev.total) * 100));
+        },
       });
-      Alert.alert("Uploaded", `${title} added to library`);
+      showBanner("ok", `"${title.trim()}" uploaded to library`);
       setTitle(""); setFile(null);
-    } catch (e) {
-      Alert.alert("Error", "Upload failed. Try smaller file.");
+      loadNotes();
+    } catch (e: any) {
+      const detail = e?.response?.data?.detail;
+      showBanner("err", detail || (e?.code === "ECONNABORTED" ? "Upload timed out. Try a smaller file." : "Upload failed. Please try again."));
     } finally {
       setUploading(false);
+      setProgress(0);
+    }
+  };
+
+  const removeNote = async (n: any) => {
+    const ok = await confirm("Delete file?", `"${n.title}" will be removed from the student library.`);
+    if (!ok) return;
+    try {
+      await API.delete(`/notes/${n.id}`);
+      setNotes((prev) => prev.filter((x) => x.id !== n.id));
+      showBanner("ok", "File deleted");
+    } catch {
+      showBanner("err", "Could not delete file");
     }
   };
 
@@ -77,7 +134,7 @@ export default function AdminContent() {
   };
 
   const generateWithAI = async () => {
-    if (!aiTopic.trim()) return Alert.alert("Enter a topic", "e.g., Laws of Motion");
+    if (!aiTopic.trim()) return notify("Enter a topic", "e.g., Laws of Motion");
     setAiBusy(true);
     try {
       const { data } = await API.post("/ai/generate-quiz", {
@@ -88,21 +145,22 @@ export default function AdminContent() {
       if (data.questions?.length) {
         setQuestions(data.questions);
         if (!qTitle.trim()) setQTitle(`${qSubject} — ${aiTopic.trim()}`);
-        Alert.alert("Quiz generated", `${data.questions.length} questions ready — review & save.`);
+        showBanner("ok", `${data.questions.length} questions generated — review & save`);
       } else {
-        Alert.alert("Try a different topic");
+        notify("Try a different topic");
       }
     } catch {
-      Alert.alert("Error", "AI generation failed. Try again.");
+      notify("Error", "AI generation failed. Try again.");
     } finally {
       setAiBusy(false);
     }
   };
 
   const createQuiz = async () => {
-    if (!qTitle.trim()) return Alert.alert("Add quiz title");
+    if (!qTitle.trim()) return notify("Add quiz title");
     const clean = questions.filter((q) => q.q.trim() && q.options.every((o: string) => o.trim()));
-    if (!clean.length) return Alert.alert("Add at least 1 complete question");
+    if (!clean.length) return notify("Incomplete quiz", "Add at least 1 question with all 4 options filled.");
+    setSavingQuiz(true);
     try {
       await API.post("/quizzes", {
         title: qTitle.trim(),
@@ -110,10 +168,14 @@ export default function AdminContent() {
         duration_seconds: parseInt(qDuration) || 300,
         questions: clean,
       });
-      Alert.alert("Quiz created", qTitle);
+      showBanner("ok", `Quiz "${qTitle.trim()}" created`);
       setQTitle("");
       setQuestions([{ q: "", options: ["", "", "", ""], correct_index: 0 }]);
-    } catch { Alert.alert("Error", "Could not create quiz"); }
+    } catch (e: any) {
+      showBanner("err", e?.response?.data?.detail || "Could not create quiz");
+    } finally {
+      setSavingQuiz(false);
+    }
   };
 
   return (
@@ -129,10 +191,17 @@ export default function AdminContent() {
           <Text style={[styles.tabText, tab === "quiz" && styles.tabTextActive]}>Create Quiz</Text>
         </Pressable>
       </View>
+      {banner && (
+        <View style={[styles.banner, banner.type === "ok" ? styles.bannerOk : styles.bannerErr]} testID="content-banner">
+          <Icon name={banner.type === "ok" ? "check-circle" : "alert-circle"} size={18} color="#fff" />
+          <Text style={styles.bannerText}>{banner.text}</Text>
+        </View>
+      )}
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 12 }}>
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 12 }} keyboardShouldPersistTaps="handled">
           {tab === "upload" ? (
+            <>
             <View style={styles.card}>
               <Text style={styles.label}>Title</Text>
               <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="Chemistry - Periodic Table" placeholderTextColor={colors.muted} testID="upload-title" />
@@ -144,17 +213,45 @@ export default function AdminContent() {
                   </Pressable>
                 ))}
               </ScrollView>
-              <Pressable onPress={pickFile} style={styles.filePicker} testID="pick-file">
-                <Icon name="file-plus-outline" size={22} color={colors.brandPrimary} />
-                <Text style={styles.filePickerText} numberOfLines={1}>
-                  {file ? file.name : "Pick a PDF or video file"}
-                </Text>
+              <Pressable onPress={pickFile} style={[styles.filePicker, file && styles.filePickerActive]} testID="pick-file">
+                <Icon name={file ? "file-check-outline" : "file-plus-outline"} size={22} color={colors.brandPrimary} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.filePickerText} numberOfLines={1}>
+                    {file ? file.name : "Pick a PDF or video file"}
+                  </Text>
+                  {file ? <Text style={styles.fileMeta}>{formatSize(file.size)} · tap to change</Text> : null}
+                </View>
               </Pressable>
+              {uploading && (
+                <View style={styles.progressWrap} testID="upload-progress">
+                  <View style={[styles.progressBar, { width: `${Math.max(progress, 3)}%` }]} />
+                  <Text style={styles.progressText}>{progress < 100 ? `Uploading… ${progress}%` : "Saving to library…"}</Text>
+                </View>
+              )}
               <Pressable onPress={upload} style={[styles.primary, uploading && { opacity: 0.6 }]} disabled={uploading} testID="upload-submit">
-                <Icon name="cloud-upload-outline" size={18} color="#fff" />
+                {uploading ? <ActivityIndicator color="#fff" /> : <Icon name="cloud-upload-outline" size={18} color="#fff" />}
                 <Text style={styles.primaryText}>{uploading ? "Uploading…" : "Upload & Save"}</Text>
               </Pressable>
             </View>
+
+            <Text style={styles.section}>Library ({notes.length})</Text>
+            {notes.length === 0 ? (
+              <Text style={styles.empty}>No files uploaded yet.</Text>
+            ) : notes.map((n) => (
+              <View key={n.id} style={styles.noteRow} testID={`note-row-${n.id}`}>
+                <View style={styles.noteIcon}>
+                  <Icon name={n.kind === "video" ? "play-circle-outline" : "file-pdf-box"} size={22} color={colors.brandPrimary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.noteTitle} numberOfLines={1}>{n.title}</Text>
+                  <Text style={styles.noteSub}>{n.subject} · {n.kind === "video" ? "Video" : "PDF"}</Text>
+                </View>
+                <Pressable onPress={() => removeNote(n)} style={styles.deleteBtn} hitSlop={8} testID={`delete-note-${n.id}`}>
+                  <Icon name="trash-can-outline" size={20} color={colors.brandSecondary} />
+                </Pressable>
+              </View>
+            ))}
+            </>
           ) : (
             <View style={{ gap: 12 }}>
               <View style={styles.card}>
@@ -234,8 +331,9 @@ export default function AdminContent() {
                 <Icon name="plus" size={18} color={colors.brandPrimary} />
                 <Text style={{ color: colors.brandPrimary, fontWeight: "800" }}>Add Question</Text>
               </Pressable>
-              <Pressable onPress={createQuiz} style={styles.primary} testID="create-quiz-submit">
-                <Text style={styles.primaryText}>Create Quiz</Text>
+              <Pressable onPress={createQuiz} disabled={savingQuiz} style={[styles.primary, savingQuiz && { opacity: 0.6 }]} testID="create-quiz-submit">
+                {savingQuiz ? <ActivityIndicator color="#fff" /> : null}
+                <Text style={styles.primaryText}>{savingQuiz ? "Saving…" : "Create Quiz"}</Text>
               </Pressable>
             </View>
           )}
@@ -279,7 +377,36 @@ const styles = StyleSheet.create({
     borderStyle: "dashed", borderWidth: 2, borderColor: colors.borderStrong,
     borderRadius: 12, padding: 14, marginTop: 12,
   },
-  filePickerText: { color: colors.onSurface, fontWeight: "600", flex: 1 },
+  filePickerText: { color: colors.onSurface, fontWeight: "600" },
+  filePickerActive: { borderColor: colors.brandPrimary, borderStyle: "solid", backgroundColor: colors.brandTertiary },
+  fileMeta: { color: colors.muted, fontSize: 11, marginTop: 2 },
+  progressWrap: {
+    marginTop: 12, height: 28, borderRadius: 999, backgroundColor: colors.surfaceTertiary,
+    overflow: "hidden", justifyContent: "center",
+  },
+  progressBar: { position: "absolute", left: 0, top: 0, bottom: 0, backgroundColor: colors.brandTertiary },
+  progressText: { textAlign: "center", fontSize: 12, fontWeight: "700", color: colors.onBrandTertiary },
+  section: { fontSize: 16, fontWeight: "800", color: colors.onSurface, marginTop: 8 },
+  empty: { color: colors.muted, fontSize: 13 },
+  noteRow: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    backgroundColor: colors.surfaceSecondary, padding: 10, borderRadius: 14,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  noteIcon: {
+    width: 44, height: 44, borderRadius: 12, backgroundColor: colors.brandTertiary,
+    alignItems: "center", justifyContent: "center",
+  },
+  noteTitle: { fontWeight: "700", color: colors.onSurface },
+  noteSub: { color: colors.muted, fontSize: 12, marginTop: 2 },
+  deleteBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  banner: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    marginHorizontal: 16, marginTop: 12, padding: 12, borderRadius: 12,
+  },
+  bannerOk: { backgroundColor: colors.brandPrimary },
+  bannerErr: { backgroundColor: colors.brandSecondary },
+  bannerText: { color: "#fff", fontWeight: "700", flex: 1 },
   primary: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
     backgroundColor: colors.brandPrimary, paddingVertical: 14, borderRadius: 999, marginTop: 16,

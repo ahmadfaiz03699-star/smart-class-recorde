@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import {
-  View, Text, StyleSheet, ScrollView, TextInput, Pressable, Alert,
+  View, Text, StyleSheet, ScrollView, TextInput, Pressable,
   KeyboardAvoidingView, Platform,
 } from "react-native";
 import { useFocusEffect } from "expo-router";
@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Icon from "@react-native-vector-icons/material-design-icons";
 import { API } from "@/src/api";
 import { colors } from "@/src/theme-tokens";
+import { notify } from "@/src/utils/notify";
 
 export default function AdminLive() {
   const insets = useSafeAreaInsets();
@@ -32,7 +33,7 @@ export default function AdminLive() {
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const start = async () => {
-    if (!title.trim() || !url.trim()) return Alert.alert("Missing fields");
+    if (!title.trim() || !url.trim()) return notify("Missing fields");
     try {
       const { data } = await API.post("/live/start", {
         title: title.trim(),
@@ -40,9 +41,9 @@ export default function AdminLive() {
         youtube_url: url.trim(),
       });
       setLive(data);
-      Alert.alert("Live started", data.title);
+      notify("Live started", data.title);
     } catch {
-      Alert.alert("Error", "Could not start live");
+      notify("Error", "Could not start live");
     }
   };
 
@@ -51,13 +52,13 @@ export default function AdminLive() {
     try {
       await API.post(`/live/${live.id}/end`);
       setLive(null);
-      Alert.alert("Ended", "Class saved as recorded.");
-    } catch { Alert.alert("Error", "Could not end"); }
+      notify("Ended", "Class saved as recorded.");
+    } catch { notify("Error", "Could not end"); }
   };
 
   const launchPoll = async () => {
     const options = opts.map((o) => o.trim()).filter(Boolean);
-    if (!pollQ.trim() || options.length < 2) return Alert.alert("Add question + 2 options");
+    if (!pollQ.trim() || options.length < 2) return notify("Add question + 2 options");
     try {
       const { data } = await API.post("/polls", {
         question: pollQ.trim(),
@@ -67,8 +68,8 @@ export default function AdminLive() {
       setCurrentPoll(data);
       setPollQ("");
       setOpts(["", "", "", ""]);
-      Alert.alert("Poll launched", "Students can now vote.");
-    } catch { Alert.alert("Error", "Could not launch"); }
+      notify("Poll launched", "Students can now vote.");
+    } catch { notify("Error", "Could not launch"); }
   };
 
   const closePoll = async () => {

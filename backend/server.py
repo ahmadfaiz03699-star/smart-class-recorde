@@ -294,6 +294,14 @@ async def create_batch(body: BatchCreate):
     return Batch(**batch)
 
 
+@api_router.delete("/batches/{batch_id}")
+async def delete_batch(batch_id: str):
+    res = await db.batches.delete_one({"id": batch_id})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Batch not found")
+    return {"success": True}
+
+
 @api_router.post("/batches/{batch_id}/purchase")
 async def purchase_batch(batch_id: str, body: PurchaseIn):
     b = await db.batches.find_one({"id": batch_id}, {"_id": 0})
@@ -490,6 +498,14 @@ async def upload_note(
     await db.notes.insert_one(note)
     note.pop("_id", None)
     return Note(**note)
+
+
+@api_router.delete("/notes/{note_id}")
+async def delete_note(note_id: str):
+    res = await db.notes.delete_one({"id": note_id})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Note not found")
+    return {"success": True}
 
 
 @api_router.get("/files/{path:path}")

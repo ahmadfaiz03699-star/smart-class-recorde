@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import {
-  View, Text, StyleSheet, ScrollView, TextInput, Pressable, Alert, FlatList,
+  View, Text, StyleSheet, ScrollView, TextInput, Pressable, ActivityIndicator,
   KeyboardAvoidingView, Platform,
 } from "react-native";
 import { Image } from "expo-image";
@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Icon from "@react-native-vector-icons/material-design-icons";
 import { API } from "@/src/api";
 import { colors } from "@/src/theme-tokens";
+import { notify, confirm } from "@/src/utils/notify";
 
 export default function AdminBatches() {
   const insets = useSafeAreaInsets();
@@ -18,9 +19,16 @@ export default function AdminBatches() {
   });
   const [batches, setBatches] = useState<any[]>([]);
   const [aiBusy, setAiBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [banner, setBanner] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
+  const showBanner = (type: "ok" | "err", text: string) => {
+    setBanner({ type, text });
+    setTimeout(() => setBanner(null), 4000);
+  };
 
   const generateDesc = async () => {
-    if (!form.title.trim()) return Alert.alert("Add a title first");
+    if (!form.title.trim()) return notify("Add a title first");
     setAiBusy(true);
     try {
       const { data } = await API.post("/ai/write-batch", {
@@ -29,32 +37,56 @@ export default function AdminBatches() {
       });
       if (data.description) setForm({ ...form, description: data.description });
     } catch {
-      Alert.alert("Error", "AI generation failed");
+      notify("Error", "AI generation failed");
     } finally {
       setAiBusy(false);
     }
   };
 
   const load = useCallback(async () => {
-    const { data } = await API.get("/batches");
-    setBatches(data || []);
+    try {
+      const { data } = await API.get("/batches");
+      setBatches(data || []);
+    } catch {
+      showBanner("err", "Could not load batches");
+    }
   }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const create = async () => {
-    if (!form.title.trim() || !form.description.trim()) return Alert.alert("Missing fields");
+    if (!form.title.trim()) return notify("Missing title", "Please enter a batch title.");
+    if (!form.description.trim()) return notify("Missing description", "Please add a description or use Write with AI.");
+    setSaving(true);
     try {
       await API.post("/batches", {
         ...form,
+        title: form.title.trim(),
+        description: form.description.trim(),
         price: parseInt(form.price) || 0,
         duration_weeks: parseInt(form.duration_weeks) || 12,
         lessons: parseInt(form.lessons) || 30,
       });
-      Alert.alert("Batch added", form.title);
+      showBanner("ok", `Batch "${form.title.trim()}" created`);
       setForm({ ...form, title: "", description: "", hero_image: "" });
       load();
-    } catch { Alert.alert("Error", "Could not create batch"); }
+    } catch (e: any) {
+      showBanner("err", e?.response?.data?.detail || "Could not create batch");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async (b: any) => {
+    const ok = await confirm("Delete batch?", `"${b.title}" will be removed for all students.`);
+    if (!ok) return;
+    try {
+      await API.delete(`/batches/${b.id}`);
+      setBatches((prev) => prev.filter((x) => x.id !== b.id));
+      showBanner("ok", "Batch deleted");
+    } catch {
+      showBanner("err", "Could not delete batch");
+    }
   };
 
   return (
@@ -62,8 +94,14 @@ export default function AdminBatches() {
       <View style={styles.header}>
         <Text style={styles.title}>Manage Batches</Text>
       </View>
+      {banner && (
+        <View style={[styles.banner, banner.type === "ok" ? styles.bannerOk : styles.bannerErr]} testID="batch-banner">
+          <Icon name={banner.type === "ok" ? "check-circle" : "alert-circle"} size={18} color="#fff" />
+          <Text style={styles.bannerText}>{banner.text}</Text>
+        </View>
+      )}
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 16 }}>
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 16 }} keyboardShouldPersistTaps="handled">
           <View style={styles.card}>
             <Text style={styles.section}>Create new batch</Text>
             <Field label="Title" value={form.title} onChange={(t) => setForm({ ...form, title: t })} testID="batch-title" />
@@ -87,20 +125,23 @@ export default function AdminBatches() {
             </View>
             <Field label="Instructor" value={form.instructor} onChange={(t) => setForm({ ...form, instructor: t })} />
             <Field label="Hero image URL (optional)" value={form.hero_image} onChange={(t) => setForm({ ...form, hero_image: t })} />
-            <Pressable onPress={create} style={styles.primary} testID="create-batch-submit">
-              <Icon name="plus" size={18} color="#fff" />
-              <Text style={styles.primaryText}>Create Batch</Text>
+            <Pressable onPress={create} disabled={saving} style={[styles.primary, saving && { opacity: 0.6 }]} testID="create-batch-submit">
+              {saving ? <ActivityIndicator color="#fff" /> : <Icon name="plus" size={18} color="#fff" />}
+              <Text style={styles.primaryText}>{saving ? "Saving…" : "Create Batch"}</Text>
             </Pressable>
           </View>
 
           <Text style={styles.section}>Existing batches ({batches.length})</Text>
           {batches.map((b) => (
-            <View key={b.id} style={styles.batchRow}>
+            <View key={b.id} style={styles.batchRow} testID={`batch-row-${b.id}`}>
               <Image source={{ uri: b.hero_image }} style={styles.thumb} contentFit="cover" />
               <View style={{ flex: 1 }}>
                 <Text style={styles.bTitle}>{b.title}</Text>
                 <Text style={styles.bSub}>{b.subject} · PKR {b.price}</Text>
               </View>
+              <Pressable onPress={() => remove(b)} style={styles.deleteBtn} hitSlop={8} testID={`delete-batch-${b.id}`}>
+                <Icon name="trash-can-outline" size={20} color={colors.brandSecondary} />
+              </Pressable>
             </View>
           ))}
         </ScrollView>
@@ -167,4 +208,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brandTertiary,
   },
   aiBtnText: { color: colors.brandPrimary, fontWeight: "700" },
+  banner: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    marginHorizontal: 16, padding: 12, borderRadius: 12,
+  },
+  bannerOk: { backgroundColor: colors.brandPrimary },
+  bannerErr: { backgroundColor: colors.brandSecondary },
+  bannerText: { color: "#fff", fontWeight: "700", flex: 1 },
+  deleteBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
 });

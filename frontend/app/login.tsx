@@ -8,13 +8,14 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Alert,
+
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { API, saveUser, registerForPush } from "@/src/api";
 import { colors } from "@/src/theme-tokens";
+import { notify } from "@/src/utils/notify";
 
 type Role = "student" | "admin";
 
@@ -33,7 +34,7 @@ export default function Login() {
     try {
       if (role === "student") {
         if (!name.trim() || !studentId.trim()) {
-          Alert.alert("Missing info", "Please enter your name and student ID");
+          notify("Missing info", "Please enter your name and student ID");
           return;
         }
         const { data } = await API.post("/auth/student-login", {
@@ -49,7 +50,7 @@ export default function Login() {
         router.replace("/(admin)/dashboard");
       }
     } catch (e: any) {
-      Alert.alert("Login failed", e?.response?.data?.detail || "Please try again");
+      notify("Login failed", e?.response?.data?.detail || "Please try again");
     } finally {
       setLoading(false);
     }

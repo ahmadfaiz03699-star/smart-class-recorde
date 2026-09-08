@@ -38,3 +38,11 @@
 - Payment is mocked — real Stripe/Razorpay can be added later.
 - Live class discussion uses 4s polling instead of websockets.
 - Poll shown to students via full-screen modal from `polls/current`.
+
+## Iteration 3 — Admin Console Fix (Jun 2026)
+- Bug: admin saw no feedback on batch create / notes / video upload (RN `Alert.alert` is a no-op on web) → looked broken.
+- Fix: `src/utils/notify.ts` (cross-platform alert/confirm), inline success/error banners, saving spinners.
+- Upload now via axios with progress bar; 10-min timeout for videos; Library list with delete on Content tab.
+- Batches tab shows list with delete. Dashboard "Create Quiz" deep-link (`?tab=quiz`) now honored.
+- New endpoints: `DELETE /api/batches/{id}`, `DELETE /api/notes/{id}`.
+- Tests: backend/tests/test_admin_console.py (6 pass), test_reports/iteration_3.json (13/13 frontend pass).
