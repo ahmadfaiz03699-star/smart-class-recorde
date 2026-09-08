@@ -13,7 +13,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { API, saveUser } from "@/src/api";
+import { API, saveUser, registerForPush } from "@/src/api";
 import { colors } from "@/src/theme-tokens";
 
 type Role = "student" | "admin";
@@ -41,6 +41,7 @@ export default function Login() {
           student_id: studentId.trim(),
         });
         await saveUser(data);
+        registerForPush(data.id).catch(() => {});
         router.replace("/(student)/home");
       } else {
         const { data } = await API.post("/auth/admin-login", { username, password });

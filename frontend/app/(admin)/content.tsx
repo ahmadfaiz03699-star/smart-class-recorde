@@ -25,6 +25,8 @@ export default function AdminContent() {
   const [qTitle, setQTitle] = useState("");
   const [qSubject, setQSubject] = useState("Physics");
   const [qDuration, setQDuration] = useState("300");
+  const [aiTopic, setAiTopic] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
   const [questions, setQuestions] = useState<any[]>([
     { q: "", options: ["", "", "", ""], correct_index: 0 },
   ]);
@@ -72,6 +74,29 @@ export default function AdminContent() {
     const copy = [...questions];
     copy[idx] = { ...copy[idx], ...patch };
     setQuestions(copy);
+  };
+
+  const generateWithAI = async () => {
+    if (!aiTopic.trim()) return Alert.alert("Enter a topic", "e.g., Laws of Motion");
+    setAiBusy(true);
+    try {
+      const { data } = await API.post("/ai/generate-quiz", {
+        topic: aiTopic.trim(),
+        subject: qSubject,
+        num_questions: 5,
+      });
+      if (data.questions?.length) {
+        setQuestions(data.questions);
+        if (!qTitle.trim()) setQTitle(`${qSubject} — ${aiTopic.trim()}`);
+        Alert.alert("Quiz generated", `${data.questions.length} questions ready — review & save.`);
+      } else {
+        Alert.alert("Try a different topic");
+      }
+    } catch {
+      Alert.alert("Error", "AI generation failed. Try again.");
+    } finally {
+      setAiBusy(false);
+    }
   };
 
   const createQuiz = async () => {
@@ -145,6 +170,33 @@ export default function AdminContent() {
                 </ScrollView>
                 <Text style={styles.label}>Duration (seconds)</Text>
                 <TextInput style={styles.input} keyboardType="number-pad" value={qDuration} onChangeText={setQDuration} />
+              </View>
+
+              <View style={[styles.card, { backgroundColor: colors.brandTertiary, borderColor: colors.brandPrimary }]}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <Icon name="robot-happy-outline" size={20} color={colors.brandPrimary} />
+                  <Text style={{ color: colors.onBrandTertiary, fontWeight: "800", fontSize: 15 }}>Generate with AI</Text>
+                </View>
+                <Text style={{ color: colors.onBrandTertiary, fontSize: 12, marginBottom: 8 }}>
+                  Enter a topic — AI creates 5 MCQs. You can edit before saving.
+                </Text>
+                <TextInput
+                  testID="ai-topic"
+                  style={styles.input}
+                  value={aiTopic}
+                  onChangeText={setAiTopic}
+                  placeholder="e.g., Laws of Motion"
+                  placeholderTextColor={colors.muted}
+                />
+                <Pressable
+                  onPress={generateWithAI}
+                  disabled={aiBusy}
+                  style={[styles.primary, { backgroundColor: colors.brandSecondary, marginTop: 12 }, aiBusy && { opacity: 0.6 }]}
+                  testID="ai-generate"
+                >
+                  <Icon name="magic-staff" size={18} color="#fff" />
+                  <Text style={styles.primaryText}>{aiBusy ? "Generating…" : "Generate Questions"}</Text>
+                </Pressable>
               </View>
 
               {questions.map((q, i) => (

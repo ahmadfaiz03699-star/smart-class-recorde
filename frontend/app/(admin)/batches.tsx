@@ -17,6 +17,23 @@ export default function AdminBatches() {
     duration_weeks: "12", lessons: "30", instructor: "Ahmad Sir", hero_image: "",
   });
   const [batches, setBatches] = useState<any[]>([]);
+  const [aiBusy, setAiBusy] = useState(false);
+
+  const generateDesc = async () => {
+    if (!form.title.trim()) return Alert.alert("Add a title first");
+    setAiBusy(true);
+    try {
+      const { data } = await API.post("/ai/write-batch", {
+        title: form.title.trim(),
+        subject: form.subject,
+      });
+      if (data.description) setForm({ ...form, description: data.description });
+    } catch {
+      Alert.alert("Error", "AI generation failed");
+    } finally {
+      setAiBusy(false);
+    }
+  };
 
   const load = useCallback(async () => {
     const { data } = await API.get("/batches");
@@ -58,7 +75,11 @@ export default function AdminBatches() {
                 </Pressable>
               ))}
             </ScrollView>
-            <Field label="Description" value={form.description} onChange={(t) => setForm({ ...form, description: t })} multiline testID="batch-desc" />
+            <Field label="Description" value={form.description} onChange={(t: string) => setForm({ ...form, description: t })} multiline testID="batch-desc" />
+            <Pressable onPress={generateDesc} disabled={aiBusy} style={[styles.aiBtn, aiBusy && { opacity: 0.6 }]} testID="ai-write-desc">
+              <Icon name="magic-staff" size={16} color={colors.brandPrimary} />
+              <Text style={styles.aiBtnText}>{aiBusy ? "Writing…" : "Write with AI"}</Text>
+            </Pressable>
             <View style={{ flexDirection: "row", gap: 8 }}>
               <View style={{ flex: 1 }}><Field label="Price (PKR)" value={form.price} onChange={(t) => setForm({ ...form, price: t })} keyboardType="number-pad" /></View>
               <View style={{ flex: 1 }}><Field label="Weeks" value={form.duration_weeks} onChange={(t) => setForm({ ...form, duration_weeks: t })} keyboardType="number-pad" /></View>
@@ -140,4 +161,10 @@ const styles = StyleSheet.create({
   thumb: { width: 60, height: 60, borderRadius: 10 },
   bTitle: { fontWeight: "700", color: colors.onSurface },
   bSub: { color: colors.muted, fontSize: 12, marginTop: 2 },
+  aiBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+    paddingVertical: 10, marginTop: 8, borderRadius: 999,
+    backgroundColor: colors.brandTertiary,
+  },
+  aiBtnText: { color: colors.brandPrimary, fontWeight: "700" },
 });

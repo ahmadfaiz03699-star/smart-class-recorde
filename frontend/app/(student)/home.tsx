@@ -15,20 +15,23 @@ export default function Home() {
   const [live, setLive] = useState<any>(null);
   const [batches, setBatches] = useState<any[]>([]);
   const [scores, setScores] = useState<any[]>([]);
+  const [leaders, setLeaders] = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     const u = await getUser();
     setUser(u);
     if (!u) return router.replace("/login");
-    const [liveR, batchR, scoreR] = await Promise.all([
+    const [liveR, batchR, scoreR, leaderR] = await Promise.all([
       API.get("/live/current").catch(() => ({ data: null })),
       API.get(`/users/${u.id}/batches`).catch(() => ({ data: [] })),
       API.get(`/users/${u.id}/quiz-scores`).catch(() => ({ data: [] })),
+      API.get("/leaderboard", { params: { limit: 5 } }).catch(() => ({ data: [] })),
     ]);
     setLive(liveR.data);
     setBatches(batchR.data || []);
     setScores(scoreR.data || []);
+    setLeaders(leaderR.data || []);
   }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -144,6 +147,38 @@ export default function Home() {
             </View>
           ))
         )}
+
+        <View style={styles.leaderHeader}>
+          <Text style={styles.section}>Leaderboard</Text>
+          <View style={styles.leaderBadge}>
+            <Icon name="trophy" size={12} color={colors.onBrandTertiary} />
+            <Text style={styles.leaderBadgeText}>Top 5</Text>
+          </View>
+        </View>
+        {leaders.length === 0 ? (
+          <View style={styles.empty}>
+            <Text style={styles.emptyText}>Be the first to attempt a quiz.</Text>
+          </View>
+        ) : (
+          <View style={{ gap: 8, marginBottom: 20 }}>
+            {leaders.map((l, i) => (
+              <View
+                key={l.user_id}
+                testID={`leader-${i}`}
+                style={[styles.leaderRow, user?.id === l.user_id && styles.leaderRowMe]}
+              >
+                <View style={[styles.rankBox, i === 0 && { backgroundColor: colors.warning }]}>
+                  <Text style={styles.rankText}>{i + 1}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.leaderName}>{l.name}{user?.id === l.user_id ? " (You)" : ""}</Text>
+                  <Text style={styles.leaderMeta}>{l.attempts} attempts · avg {l.avg_score}%</Text>
+                </View>
+                <Text style={styles.leaderScore}>{l.total_score}</Text>
+              </View>
+            ))}
+          </View>
+        )}
       </ScrollView>
 
       <Pressable
@@ -229,6 +264,26 @@ const styles = StyleSheet.create({
   scoreTitle: { fontWeight: "700", color: colors.onSurface },
   scoreMeta: { color: colors.muted, fontSize: 12 },
   scoreVal: { color: colors.brandPrimary, fontWeight: "800", fontSize: 18 },
+  leaderHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 4 },
+  leaderBadge: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: colors.brandTertiary, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999,
+  },
+  leaderBadgeText: { color: colors.onBrandTertiary, fontWeight: "800", fontSize: 11 },
+  leaderRow: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    backgroundColor: colors.surfaceSecondary, borderRadius: 12, padding: 12,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  leaderRowMe: { borderColor: colors.brandPrimary, borderWidth: 2 },
+  rankBox: {
+    width: 32, height: 32, borderRadius: 8, backgroundColor: colors.brandPrimary,
+    alignItems: "center", justifyContent: "center",
+  },
+  rankText: { color: "#fff", fontWeight: "800" },
+  leaderName: { color: colors.onSurface, fontWeight: "700" },
+  leaderMeta: { color: colors.muted, fontSize: 11, marginTop: 2 },
+  leaderScore: { color: colors.brandPrimary, fontWeight: "800", fontSize: 16 },
   fab: {
     position: "absolute", right: 20, width: 56, height: 56, borderRadius: 28,
     backgroundColor: colors.brandSecondary, alignItems: "center", justifyContent: "center",

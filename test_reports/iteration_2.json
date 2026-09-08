@@ -1,0 +1,37 @@
+{
+  "summary": "Backend-only testing for iteration 2 (4 new features): UPI payments, Emergent push notifications, leaderboard, and enhanced AI (photo/vision + admin generators). Wrote /app/backend/tests/test_new_features.py covering all 9 requested endpoints across 10 test cases. Result: 10/10 passed (100%). Verified: (1) POST /api/batches/{id}/checkout returns upi_url starting with 'upi://pay?' with tr=payment_id, pa/am/cu params correct; (2) GET /api/payments/{id} returns pending record with correct fields; (3) POST /api/payments/{id}/confirm marks paid, enrolls user in batch (verified via GET /users/{id}/batches), and is idempotent — second call returns status='already_paid'; unknown id returns 404; (4) GET /api/leaderboard returns rows sorted by total_score desc with required keys (user_id, name, total_score, attempts, avg_score); (5) POST /api/register-push with placeholder EMERGENT_PUSH_KEY returns 201 with status='queued' or 'registered' (fail-soft, no 500); (6) POST /api/live/start still succeeds despite placeholder push key (push broadcast wrapped in try/except, non-blocking); (7) POST /api/ai/generate-quiz returns exactly 3 well-formed MCQs with q, 4 options, correct_index 0-3; (8) POST /api/ai/write-batch returns non-empty description ≥ 20 words; (9) POST /api/ai/photo (multipart tiny in-memory JPEG ~1.5KB) streams text/plain with first byte within 45s. No critical or minor backend issues found in this iteration.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_new_features.py",
+    "/app/backend/tests/test_backend_api.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/pytest_new_features.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py now ~1000 lines — recommend splitting into modules (auth, batches, live, payments, push, ai, leaderboard) as it will grow further.",
+    "UPI checkout does not currently prevent duplicate pending payments for the same (user_id, batch_id); consider dedupe or a TTL for stale pending rows.",
+    "AI generate-quiz raises 500 if AI returns non-JSON — 200 with empty list or 502 Bad Gateway would be more idiomatic for downstream failures.",
+    "_push_client is module-level and never awaited-closed on shutdown; add `await _push_client.aclose()` in on_shutdown to avoid ResourceWarning on reload.",
+    "Push endpoints (register + broadcast) are not authenticated — anyone can register any user_id's device token. Acceptable for MVP but flag for future hardening.",
+    "Leaderboard 'name' falls back to 'Anonymous' when user record is missing — acceptable but log a warning for orphaned quiz_submissions."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_new_features.py"
+  ],
+  "success_rate": {"backend": "100% (10/10 new tests)", "frontend": "N/A (skipped per request)"},
+  "seed_data_creation": "Each run creates TEST_* users (via /auth/student-login), UPI payment records (via /checkout), and one extra live-class + auto-generated recorded note (from live/start + live/end cleanup). Data left in DB by design.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All 9 new endpoints from iteration 2 are green (test_new_features.py). The suite is parallelized via -n 2 --dist loadscope (pytest.ini in /app/backend). AI endpoints take ~5-15s each — timeouts are set to 60-90s. Base URL from EXPO_PUBLIC_BACKEND_URL in /app/frontend/.env. Pillow is used to synthesize a ~1.5KB JPEG for /ai/photo. To retest just the new features run: `cd /app/backend && python -m pytest tests/test_new_features.py -v`.",
+  "rca_of_issue": "N/A — no failures."
+}

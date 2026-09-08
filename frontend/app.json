@@ -9,14 +9,25 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.emergent.smartclassrecorder.bmqnaq"
+      "bundleIdentifier": "com.emergent.smartclassrecorder.bmqnaq",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Snap a question to get AI step-by-step solution",
+        "NSPhotoLibraryUsageDescription": "Pick a question image to ask the AI Tutor",
+        "NSMicrophoneUsageDescription": "Ask AI Tutor questions with your voice"
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#000000"
+        "backgroundColor": "#059669"
       },
-      "package": "com.emergent.smartclassrecorder.bmqnaq"
+      "package": "com.emergent.smartclassrecorder.bmqnaq",
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "READ_EXTERNAL_STORAGE",
+        "POST_NOTIFICATIONS"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -31,7 +42,7 @@
           "image": "./assets/images/splash-image.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#000000"
+          "backgroundColor": "#059669"
         }
       ],
       "expo-font",
@@ -39,7 +50,20 @@
       "expo-secure-store",
       "expo-web-browser",
       "expo-status-bar",
-      "@react-native-vector-icons/material-design-icons"
+      "expo-notifications",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Snap a question to get AI step-by-step solution",
+          "microphonePermission": "Ask AI Tutor questions with your voice"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Pick a question image to ask the AI Tutor"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

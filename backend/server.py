@@ -14,6 +14,8 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 import requests
+import httpx
+import urllib.parse
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -21,8 +23,11 @@ load_dotenv(ROOT_DIR / ".env")
 MONGO_URL = os.environ["MONGO_URL"]
 DB_NAME = os.environ["DB_NAME"]
 EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY")
+EMERGENT_PUSH_KEY = os.environ.get("EMERGENT_PUSH_KEY", "placeholder")
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
+UPI_VPA = os.environ.get("UPI_VPA", "ahmadclasses@upi")
+UPI_PAYEE_NAME = os.environ.get("UPI_PAYEE_NAME", "Ahmad Classes")
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
@@ -328,6 +333,22 @@ async def start_live(body: LiveStartIn):
     ).dict()
     await db.live_classes.insert_one(live)
     live.pop("_id", None)
+    # Broadcast push to all students (non-blocking)
+    try:
+        students = await db.users.find({"role": "student"}, {"_id": 0, "id": 1}).to_list(1000)
+        recipients = [s["id"] for s in students]
+        if recipients:
+            await send_push(
+                recipients,
+                {
+                    "title": "🔴 Live class started",
+                    "message": f"{live['title']} — Tap to join now",
+                    "action_url": "/live-class",
+                },
+                idempotency_key=f"live-{live['id']}",
+            )
+    except Exception as e:
+        logger.warning(f"Live push broadcast failed: {e}")
     return LiveClass(**live)
 
 
@@ -608,8 +629,252 @@ async def ai_analyze(body: AnalyzeIn):
 
 
 # ------------------------------------------------------------------
-# Admin analytics
+# UPI Payments
 # ------------------------------------------------------------------
+class CheckoutIn(BaseModel):
+    user_id: str
+
+
+@api_router.post("/batches/{batch_id}/checkout")
+async def upi_checkout(batch_id: str, body: CheckoutIn):
+    b = await db.batches.find_one({"id": batch_id}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Batch not found")
+    payment_id = str(uuid.uuid4())
+    pay = {
+        "id": payment_id,
+        "user_id": body.user_id,
+        "batch_id": batch_id,
+        "amount": b["price"],
+        "status": "pending",
+        "created_at": now_iso(),
+    }
+    await db.payments.insert_one(pay)
+    params = {
+        "pa": UPI_VPA,
+        "pn": UPI_PAYEE_NAME,
+        "am": str(b["price"]),
+        "cu": "INR",
+        "tn": f"AhmadClasses-{payment_id[:8]}",
+        "tr": payment_id,
+    }
+    upi_url = "upi://pay?" + urllib.parse.urlencode(params)
+    return {
+        "payment_id": payment_id,
+        "amount": b["price"],
+        "vpa": UPI_VPA,
+        "payee_name": UPI_PAYEE_NAME,
+        "upi_url": upi_url,
+    }
+
+
+@api_router.post("/payments/{payment_id}/confirm")
+async def confirm_payment(payment_id: str):
+    pay = await db.payments.find_one({"id": payment_id}, {"_id": 0})
+    if not pay:
+        raise HTTPException(404, "Payment not found")
+    if pay["status"] == "paid":
+        return {"status": "already_paid", "batch_id": pay["batch_id"]}
+    await db.payments.update_one(
+        {"id": payment_id},
+        {"$set": {"status": "paid", "paid_at": now_iso()}},
+    )
+    await db.users.update_one(
+        {"id": pay["user_id"]},
+        {"$addToSet": {"enrolled_batches": pay["batch_id"]}},
+    )
+    return {"status": "paid", "batch_id": pay["batch_id"]}
+
+
+@api_router.get("/payments/{payment_id}")
+async def payment_status(payment_id: str):
+    pay = await db.payments.find_one({"id": payment_id}, {"_id": 0})
+    if not pay:
+        raise HTTPException(404, "Payment not found")
+    return pay
+
+
+# ------------------------------------------------------------------
+# Push Notifications (Emergent managed)
+# ------------------------------------------------------------------
+PUSH_BASE_URL = "https://integrations.emergentagent.com"
+_push_client = httpx.AsyncClient(
+    base_url=PUSH_BASE_URL,
+    headers={"X-Push-Key": EMERGENT_PUSH_KEY},
+    timeout=10.0,
+)
+
+
+class RegisterPushBody(BaseModel):
+    user_id: str
+    platform: str
+    device_token: str
+
+
+@api_router.post("/register-push", status_code=201)
+async def register_push(body: RegisterPushBody):
+    try:
+        resp = await _push_client.post("/api/v1/push/users/register", json=body.model_dump())
+        if resp.status_code == 401:
+            logger.warning("EMERGENT_PUSH_KEY placeholder or invalid; queued for build")
+            return {"status": "queued"}
+        resp.raise_for_status()
+    except Exception as e:
+        logger.warning(f"Push register failed (non-blocking): {e}")
+    return {"status": "registered"}
+
+
+async def send_push(recipients, data, idempotency_key=None):
+    if not recipients:
+        return
+    payload = {"recipients": recipients[:100], "data": data}
+    if idempotency_key:
+        payload["$idempotency_key"] = idempotency_key
+    try:
+        resp = await _push_client.post("/api/v1/push/trigger", json=payload)
+        resp.raise_for_status()
+    except Exception as e:
+        logger.warning(f"Push send failed (non-blocking): {e}")
+
+
+# ------------------------------------------------------------------
+# Leaderboard
+# ------------------------------------------------------------------
+@api_router.get("/leaderboard")
+async def leaderboard(limit: int = 10):
+    pipeline = [
+        {"$group": {
+            "_id": "$user_id",
+            "total_score": {"$sum": "$score"},
+            "attempts": {"$sum": 1},
+            "correct": {"$sum": "$correct"},
+        }},
+        {"$sort": {"total_score": -1}},
+        {"$limit": limit},
+    ]
+    rows = await db.quiz_submissions.aggregate(pipeline).to_list(limit)
+    user_ids = [r["_id"] for r in rows]
+    users_map: dict = {}
+    async for u in db.users.find({"id": {"$in": user_ids}}, {"_id": 0, "id": 1, "name": 1}):
+        users_map[u["id"]] = u["name"]
+    return [
+        {
+            "user_id": r["_id"],
+            "name": users_map.get(r["_id"], "Anonymous"),
+            "total_score": r["total_score"],
+            "attempts": r["attempts"],
+            "avg_score": round(r["total_score"] / r["attempts"], 1) if r["attempts"] else 0,
+        }
+        for r in rows
+    ]
+
+
+# ------------------------------------------------------------------
+# AI Photo / Math OCR (Gemini vision)
+# ------------------------------------------------------------------
+@api_router.post("/ai/photo")
+async def ai_photo(
+    file: UploadFile = File(...),
+    session_id: str = Form(...),
+    question: str = Form("Solve this question step-by-step. Show working clearly."),
+):
+    data = await file.read()
+    ext = (file.filename or "img.jpg").rsplit(".", 1)[-1].lower()
+    tmp = Path(f"/tmp/{uuid.uuid4()}.{ext}")
+    tmp.write_bytes(data)
+    mime = file.content_type or ("image/jpeg" if ext in ("jpg", "jpeg") else "image/png")
+
+    async def gen():
+        try:
+            async for token in _stream_gemini(session_id, question, str(tmp), mime):
+                yield token
+        finally:
+            try:
+                tmp.unlink()
+            except Exception:
+                pass
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/plain",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ------------------------------------------------------------------
+# Admin AI generators
+# ------------------------------------------------------------------
+async def _gemini_once(system: str, prompt: str) -> str:
+    from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, StreamDone
+    chat = LlmChat(
+        api_key=EMERGENT_LLM_KEY,
+        session_id=f"gen-{uuid.uuid4()}",
+        system_message=system,
+    ).with_model("gemini", "gemini-3-flash-preview")
+    acc = ""
+    async for ev in chat.stream_message(UserMessage(text=prompt)):
+        if isinstance(ev, TextDelta):
+            acc += ev.content
+        elif isinstance(ev, StreamDone):
+            break
+    return acc
+
+
+class GenQuizIn(BaseModel):
+    topic: str
+    subject: str = "Physics"
+    num_questions: int = 5
+
+
+@api_router.post("/ai/generate-quiz")
+async def ai_generate_quiz(body: GenQuizIn):
+    import json
+    import re
+    prompt = (
+        f"Generate a quiz on '{body.topic}' for {body.subject} (class 11-12). "
+        f"Return a JSON array of exactly {body.num_questions} objects. Each object MUST have keys: "
+        f"'q' (question), 'options' (array of 4 strings), 'correct_index' (integer 0-3). "
+        f"Return ONLY valid JSON, no markdown fences, no commentary."
+    )
+    text = await _gemini_once(
+        "You generate concise, accurate school-level MCQs. Output only JSON.", prompt,
+    )
+    m = re.search(r"\[.*\]", text, re.DOTALL)
+    if not m:
+        raise HTTPException(500, "Could not parse AI output")
+    try:
+        questions = json.loads(m.group(0))
+    except Exception:
+        raise HTTPException(500, "Invalid JSON returned by AI")
+    # sanitize
+    clean = []
+    for q in questions:
+        if isinstance(q, dict) and "q" in q and isinstance(q.get("options"), list) and len(q["options"]) == 4:
+            clean.append({
+                "q": str(q["q"]),
+                "options": [str(o) for o in q["options"]],
+                "correct_index": int(q.get("correct_index", 0)),
+            })
+    return {"questions": clean}
+
+
+class GenBatchIn(BaseModel):
+    title: str
+    subject: str = "Physics"
+
+
+@api_router.post("/ai/write-batch")
+async def ai_write_batch(body: GenBatchIn):
+    prompt = (
+        f"Write a compelling 2-3 sentence marketing description (35-45 words) for an educational batch "
+        f"titled '{body.title}' teaching {body.subject} to high-school students. "
+        f"Focus on outcomes, exam readiness and instructor value. Plain text, no quotes."
+    )
+    text = await _gemini_once("You write concise, exciting course descriptions.", prompt)
+    return {"description": text.strip().strip('"').strip("'")}
+
+
+
 @api_router.get("/admin/analytics")
 async def admin_analytics():
     students = await db.users.count_documents({"role": "student"})
