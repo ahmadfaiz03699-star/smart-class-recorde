@@ -137,6 +137,17 @@ class BatchCreate(BaseModel):
     hero_image: str = ""
 
 
+class BatchUpdate(BaseModel):
+    title: Optional[str] = None
+    subject: Optional[str] = None
+    description: Optional[str] = None
+    price: Optional[int] = None
+    duration_weeks: Optional[int] = None
+    lessons: Optional[int] = None
+    instructor: Optional[str] = None
+    hero_image: Optional[str] = None
+
+
 class PurchaseIn(BaseModel):
     user_id: str
 
@@ -292,6 +303,22 @@ async def create_batch(body: BatchCreate):
     await db.batches.insert_one(batch)
     batch.pop("_id", None)
     return Batch(**batch)
+
+
+@api_router.put("/batches/{batch_id}", response_model=Batch)
+async def update_batch(batch_id: str, body: BatchUpdate):
+    b = await db.batches.find_one({"id": batch_id}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Batch not found")
+    updates = {k: v for k, v in body.dict().items() if v is not None}
+    if not updates:
+        return Batch(**b)
+    if "hero_image" in updates and not updates["hero_image"]:
+        updates["hero_image"] = b.get("hero_image", "https://images.pexels.com/photos/7548729/pexels-photo-7548729.jpeg")
+    await db.batches.update_one({"id": batch_id}, {"$set": updates})
+    updated = await db.batches.find_one({"id": batch_id}, {"_id": 0})
+    updated.pop("_id", None)
+    return Batch(**updated)
 
 
 @api_router.delete("/batches/{batch_id}")

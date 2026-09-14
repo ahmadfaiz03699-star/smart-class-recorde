@@ -11,16 +11,19 @@ import { API } from "@/src/api";
 import { colors } from "@/src/theme-tokens";
 import { notify, confirm } from "@/src/utils/notify";
 
+const EMPTY_FORM = {
+  title: "", subject: "Physics", description: "", price: "1999",
+  duration_weeks: "12", lessons: "30", instructor: "Ahmad Sir", hero_image: "",
+};
+
 export default function AdminBatches() {
   const insets = useSafeAreaInsets();
-  const [form, setForm] = useState({
-    title: "", subject: "Physics", description: "", price: "1999",
-    duration_weeks: "12", lessons: "30", instructor: "Ahmad Sir", hero_image: "",
-  });
+  const [form, setForm] = useState({ ...EMPTY_FORM });
   const [batches, setBatches] = useState<any[]>([]);
   const [aiBusy, setAiBusy] = useState(false);
   const [saving, setSaving] = useState(false);
   const [banner, setBanner] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const showBanner = (type: "ok" | "err", text: string) => {
     setBanner({ type, text });
@@ -54,24 +57,49 @@ export default function AdminBatches() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const create = async () => {
+  const resetForm = () => {
+    setForm({ ...EMPTY_FORM });
+    setEditingId(null);
+  };
+
+  const startEdit = (b: any) => {
+    setEditingId(b.id);
+    setForm({
+      title: b.title || "",
+      subject: b.subject || "Physics",
+      description: b.description || "",
+      price: String(b.price ?? ""),
+      duration_weeks: String(b.duration_weeks ?? "12"),
+      lessons: String(b.lessons ?? "30"),
+      instructor: b.instructor || "Ahmad Sir",
+      hero_image: b.hero_image || "",
+    });
+  };
+
+  const save = async () => {
     if (!form.title.trim()) return notify("Missing title", "Please enter a batch title.");
     if (!form.description.trim()) return notify("Missing description", "Please add a description or use Write with AI.");
     setSaving(true);
     try {
-      await API.post("/batches", {
+      const payload = {
         ...form,
         title: form.title.trim(),
         description: form.description.trim(),
         price: parseInt(form.price) || 0,
         duration_weeks: parseInt(form.duration_weeks) || 12,
         lessons: parseInt(form.lessons) || 30,
-      });
-      showBanner("ok", `Batch "${form.title.trim()}" created`);
-      setForm({ ...form, title: "", description: "", hero_image: "" });
+      };
+      if (editingId) {
+        await API.put(`/batches/${editingId}`, payload);
+        showBanner("ok", `Batch "${form.title.trim()}" updated`);
+      } else {
+        await API.post("/batches", payload);
+        showBanner("ok", `Batch "${form.title.trim()}" created`);
+      }
+      resetForm();
       load();
     } catch (e: any) {
-      showBanner("err", e?.response?.data?.detail || "Could not create batch");
+      showBanner("err", e?.response?.data?.detail || "Could not save batch");
     } finally {
       setSaving(false);
     }
@@ -83,6 +111,7 @@ export default function AdminBatches() {
     try {
       await API.delete(`/batches/${b.id}`);
       setBatches((prev) => prev.filter((x) => x.id !== b.id));
+      if (editingId === b.id) resetForm();
       showBanner("ok", "Batch deleted");
     } catch {
       showBanner("err", "Could not delete batch");
@@ -103,12 +132,20 @@ export default function AdminBatches() {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 16 }} keyboardShouldPersistTaps="handled">
           <View style={styles.card}>
-            <Text style={styles.section}>Create new batch</Text>
-            <Field label="Title" value={form.title} onChange={(t) => setForm({ ...form, title: t })} testID="batch-title" />
+            <View style={styles.formHeader}>
+              <Text style={styles.section}>{editingId ? "Edit batch" : "Create new batch"}</Text>
+              {editingId && (
+                <Pressable onPress={resetForm} style={styles.cancelEdit} testID="cancel-edit">
+                  <Icon name="close" size={16} color={colors.muted} />
+                  <Text style={styles.cancelEditText}>Cancel edit</Text>
+                </Pressable>
+              )}
+            </View>
+            <Field label="Title" value={form.title} onChange={(t: string) => setForm({ ...form, title: t })} testID="batch-title" />
             <Text style={styles.label}>Subject</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
               {["Physics", "Chemistry", "Maths", "Biology", "English"].map((s) => (
-                <Pressable key={s} onPress={() => setForm({ ...form, subject: s })} style={[styles.chip, form.subject === s && styles.chipActive]}>
+                <Pressable key={s} onPress={() => setForm({ ...form, subject: s })} style={[styles.chip, form.subject === s && styles.chipActive]} testID={`batch-subject-${s}`}>
                   <Text style={[styles.chipText, form.subject === s && { color: "#fff" }]}>{s}</Text>
                 </Pressable>
               ))}
@@ -119,26 +156,32 @@ export default function AdminBatches() {
               <Text style={styles.aiBtnText}>{aiBusy ? "Writing…" : "Write with AI"}</Text>
             </Pressable>
             <View style={{ flexDirection: "row", gap: 8 }}>
-              <View style={{ flex: 1 }}><Field label="Price (PKR)" value={form.price} onChange={(t) => setForm({ ...form, price: t })} keyboardType="number-pad" /></View>
-              <View style={{ flex: 1 }}><Field label="Weeks" value={form.duration_weeks} onChange={(t) => setForm({ ...form, duration_weeks: t })} keyboardType="number-pad" /></View>
-              <View style={{ flex: 1 }}><Field label="Lessons" value={form.lessons} onChange={(t) => setForm({ ...form, lessons: t })} keyboardType="number-pad" /></View>
+              <View style={{ flex: 1 }}><Field label="Price (PKR)" value={form.price} onChange={(t: string) => setForm({ ...form, price: t })} keyboardType="number-pad" /></View>
+              <View style={{ flex: 1 }}><Field label="Weeks" value={form.duration_weeks} onChange={(t: string) => setForm({ ...form, duration_weeks: t })} keyboardType="number-pad" /></View>
+              <View style={{ flex: 1 }}><Field label="Lessons" value={form.lessons} onChange={(t: string) => setForm({ ...form, lessons: t })} keyboardType="number-pad" /></View>
             </View>
-            <Field label="Instructor" value={form.instructor} onChange={(t) => setForm({ ...form, instructor: t })} />
-            <Field label="Hero image URL (optional)" value={form.hero_image} onChange={(t) => setForm({ ...form, hero_image: t })} />
-            <Pressable onPress={create} disabled={saving} style={[styles.primary, saving && { opacity: 0.6 }]} testID="create-batch-submit">
-              {saving ? <ActivityIndicator color="#fff" /> : <Icon name="plus" size={18} color="#fff" />}
-              <Text style={styles.primaryText}>{saving ? "Saving…" : "Create Batch"}</Text>
+            <Field label="Instructor" value={form.instructor} onChange={(t: string) => setForm({ ...form, instructor: t })} testID="batch-instructor" />
+            <Field label="Hero image URL (optional)" value={form.hero_image} onChange={(t: string) => setForm({ ...form, hero_image: t })} testID="batch-hero-image" />
+            <Pressable onPress={save} disabled={saving} style={[styles.primary, saving && { opacity: 0.6 }]} testID="create-batch-submit">
+              {saving ? <ActivityIndicator color="#fff" /> : <Icon name={editingId ? "check" : "plus"} size={18} color="#fff" />}
+              <Text style={styles.primaryText}>{saving ? "Saving…" : editingId ? "Update Batch" : "Create Batch"}</Text>
             </Pressable>
           </View>
 
           <Text style={styles.section}>Existing batches ({batches.length})</Text>
+          {batches.length === 0 && (
+            <Text style={styles.emptyText}>No batches yet. Create one above.</Text>
+          )}
           {batches.map((b) => (
             <View key={b.id} style={styles.batchRow} testID={`batch-row-${b.id}`}>
               <Image source={{ uri: b.hero_image }} style={styles.thumb} contentFit="cover" />
               <View style={{ flex: 1 }}>
                 <Text style={styles.bTitle}>{b.title}</Text>
-                <Text style={styles.bSub}>{b.subject} · PKR {b.price}</Text>
+                <Text style={styles.bSub}>{b.subject} · PKR {b.price} · {b.instructor}</Text>
               </View>
+              <Pressable onPress={() => startEdit(b)} style={styles.editBtn} hitSlop={8} testID={`edit-batch-${b.id}`}>
+                <Icon name="pencil-outline" size={20} color={colors.brandPrimary} />
+              </Pressable>
               <Pressable onPress={() => remove(b)} style={styles.deleteBtn} hitSlop={8} testID={`delete-batch-${b.id}`}>
                 <Icon name="trash-can-outline" size={20} color={colors.brandSecondary} />
               </Pressable>
@@ -171,7 +214,10 @@ const styles = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: colors.surface },
   header: { paddingHorizontal: 16, paddingVertical: 12 },
   title: { fontSize: 22, fontWeight: "800", color: colors.onSurface },
-  section: { fontSize: 16, fontWeight: "800", color: colors.onSurface, marginBottom: 8 },
+  formHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+  section: { fontSize: 16, fontWeight: "800", color: colors.onSurface },
+  cancelEdit: { flexDirection: "row", alignItems: "center", gap: 4 },
+  cancelEditText: { color: colors.muted, fontSize: 12, fontWeight: "600" },
   card: {
     backgroundColor: colors.surfaceSecondary, borderRadius: 16, padding: 16,
     borderWidth: 1, borderColor: colors.border,
@@ -215,5 +261,7 @@ const styles = StyleSheet.create({
   bannerOk: { backgroundColor: colors.brandPrimary },
   bannerErr: { backgroundColor: colors.brandSecondary },
   bannerText: { color: "#fff", fontWeight: "700", flex: 1 },
+  editBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
   deleteBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  emptyText: { color: colors.muted, fontSize: 13, textAlign: "center", paddingVertical: 20 },
 });
