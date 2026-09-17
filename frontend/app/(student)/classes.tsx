@@ -4,7 +4,7 @@ import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import Icon from "@react-native-vector-icons/material-design-icons";
-import { API } from "@/src/api";
+import { API, getUser } from "@/src/api";
 import { colors } from "@/src/theme-tokens";
 
 const SUBJECTS = ["All", "Physics", "Chemistry", "Maths", "Biology", "English"];
@@ -22,14 +22,22 @@ export default function Classes() {
   const [live, setLive] = useState<any>(null);
 
   const load = useCallback(async () => {
+    const u = await getUser();
+    const batchIds = (u?.enrolled_batches || []).join(",");
     const params: any = { kind };
     if (subject !== "All") params.subject = subject;
+    if (batchIds) params.batch_ids = batchIds;
     const [notesR, liveR] = await Promise.all([
       API.get("/notes", { params }),
       API.get("/live/current").catch(() => ({ data: null })),
     ]);
     setNotes(notesR.data || []);
-    setLive(liveR.data);
+    const liveData = liveR.data;
+    if (liveData && liveData.batch_id && !(u?.enrolled_batches || []).includes(liveData.batch_id)) {
+      setLive(null);
+    } else {
+      setLive(liveData);
+    }
   }, [kind, subject]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));

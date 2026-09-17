@@ -34,6 +34,9 @@ export default function AdminContent() {
     setTimeout(() => setBanner(null), 4000);
   };
 
+  // Batches for selector
+  const [batches, setBatches] = useState<any[]>([]);
+
   // Upload
   const [title, setTitle] = useState("");
   const [subject, setSubject] = useState("Physics");
@@ -41,6 +44,16 @@ export default function AdminContent() {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [notes, setNotes] = useState<any[]>([]);
+  const [uploadBatchId, setUploadBatchId] = useState("");
+
+  const loadBatches = useCallback(async () => {
+    try {
+      const { data } = await API.get("/batches");
+      setBatches(data || []);
+    } catch {
+      // silent
+    }
+  }, []);
 
   const loadNotes = useCallback(async () => {
     try {
@@ -51,12 +64,13 @@ export default function AdminContent() {
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { loadNotes(); }, [loadNotes]));
+  useFocusEffect(useCallback(() => { loadBatches(); loadNotes(); }, [loadBatches, loadNotes]));
 
   // Quiz
   const [qTitle, setQTitle] = useState("");
   const [qSubject, setQSubject] = useState("Physics");
   const [qDuration, setQDuration] = useState("300");
+  const [qBatchId, setQBatchId] = useState("");
   const [aiTopic, setAiTopic] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
   const [savingQuiz, setSavingQuiz] = useState(false);
@@ -79,6 +93,7 @@ export default function AdminContent() {
   const upload = async () => {
     if (!title.trim()) return notify("Missing title", "Please enter a title for this file.");
     if (!file) return notify("No file selected", "Tap 'Pick a PDF or video file' first.");
+    if (!uploadBatchId) return notify("Select a batch", "Please choose which batch this file belongs to.");
     setUploading(true);
     setProgress(0);
     try {
@@ -95,6 +110,7 @@ export default function AdminContent() {
       form.append("title", title.trim());
       form.append("subject", subject);
       form.append("kind", kind);
+      form.append("batch_id", uploadBatchId);
       await API.post("/upload", form, {
         headers: { "Content-Type": "multipart/form-data" },
         timeout: 10 * 60 * 1000,
@@ -158,6 +174,7 @@ export default function AdminContent() {
 
   const createQuiz = async () => {
     if (!qTitle.trim()) return notify("Add quiz title");
+    if (!qBatchId) return notify("Select a batch", "Please choose which batch this quiz belongs to.");
     const clean = questions.filter((q) => q.q.trim() && q.options.every((o: string) => o.trim()));
     if (!clean.length) return notify("Incomplete quiz", "Add at least 1 question with all 4 options filled.");
     setSavingQuiz(true);
@@ -167,6 +184,7 @@ export default function AdminContent() {
         subject: qSubject,
         duration_seconds: parseInt(qDuration) || 300,
         questions: clean,
+        batch_id: qBatchId,
       });
       showBanner("ok", `Quiz "${qTitle.trim()}" created`);
       setQTitle("");
@@ -176,6 +194,11 @@ export default function AdminContent() {
     } finally {
       setSavingQuiz(false);
     }
+  };
+
+  const batchLabel = (bid: string) => {
+    const b = batches.find((x) => x.id === bid);
+    return b ? b.title : "No batch";
   };
 
   return (
@@ -213,6 +236,15 @@ export default function AdminContent() {
                   </Pressable>
                 ))}
               </ScrollView>
+              <Text style={styles.label}>Batch</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+                {batches.length === 0 && <Text style={styles.empty}>No batches yet. Create one in the Batches tab.</Text>}
+                {batches.map((b) => (
+                  <Pressable key={b.id} onPress={() => setUploadBatchId(b.id)} style={[styles.chip, uploadBatchId === b.id && styles.chipActive]} testID={`upload-batch-${b.id}`}>
+                    <Text style={[styles.chipText, uploadBatchId === b.id && { color: "#fff" }]} numberOfLines={1}>{b.title}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
               <Pressable onPress={pickFile} style={[styles.filePicker, file && styles.filePickerActive]} testID="pick-file">
                 <Icon name={file ? "file-check-outline" : "file-plus-outline"} size={22} color={colors.brandPrimary} />
                 <View style={{ flex: 1 }}>
@@ -244,7 +276,7 @@ export default function AdminContent() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.noteTitle} numberOfLines={1}>{n.title}</Text>
-                  <Text style={styles.noteSub}>{n.subject} · {n.kind === "video" ? "Video" : "PDF"}</Text>
+                  <Text style={styles.noteSub}>{n.subject} · {n.kind === "video" ? "Video" : "PDF"} · {n.batch_id ? batchLabel(n.batch_id) : "No batch"}</Text>
                 </View>
                 <Pressable onPress={() => removeNote(n)} style={styles.deleteBtn} hitSlop={8} testID={`delete-note-${n.id}`}>
                   <Icon name="trash-can-outline" size={20} color={colors.brandSecondary} />
@@ -262,6 +294,15 @@ export default function AdminContent() {
                   {["Physics", "Chemistry", "Maths", "Biology", "English"].map((s) => (
                     <Pressable key={s} onPress={() => setQSubject(s)} style={[styles.chip, qSubject === s && styles.chipActive]}>
                       <Text style={[styles.chipText, qSubject === s && { color: "#fff" }]}>{s}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+                <Text style={styles.label}>Batch</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+                  {batches.length === 0 && <Text style={styles.empty}>No batches yet. Create one in the Batches tab.</Text>}
+                  {batches.map((b) => (
+                    <Pressable key={b.id} onPress={() => setQBatchId(b.id)} style={[styles.chip, qBatchId === b.id && styles.chipActive]} testID={`quiz-batch-${b.id}`}>
+                      <Text style={[styles.chipText, qBatchId === b.id && { color: "#fff" }]} numberOfLines={1}>{b.title}</Text>
                     </Pressable>
                   ))}
                 </ScrollView>

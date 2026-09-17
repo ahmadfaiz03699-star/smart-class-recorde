@@ -36,7 +36,12 @@ export default function LiveClass() {
       API.get("/chat", { params: { live_id: null, limit: 30 } }).catch(() => ({ data: [] })),
       API.get("/polls/current").catch(() => ({ data: null })),
     ]);
-    setLive(l.data);
+    const liveData = l.data;
+    if (liveData && u && liveData.batch_id && !(u.enrolled_batches || []).includes(liveData.batch_id)) {
+      setLive(null);
+    } else {
+      setLive(liveData);
+    }
     setMessages(chats.data || []);
     setPoll(p.data);
     setVoted(false);

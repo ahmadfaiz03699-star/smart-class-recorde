@@ -28,7 +28,12 @@ export default function Home() {
       API.get(`/users/${u.id}/quiz-scores`).catch(() => ({ data: [] })),
       API.get("/leaderboard", { params: { limit: 5 } }).catch(() => ({ data: [] })),
     ]);
-    setLive(liveR.data);
+    const liveData = liveR.data;
+    if (liveData && liveData.batch_id && !(u.enrolled_batches || []).includes(liveData.batch_id)) {
+      setLive(null);
+    } else {
+      setLive(liveData);
+    }
     setBatches(batchR.data || []);
     setScores(scoreR.data || []);
     setLeaders(leaderR.data || []);

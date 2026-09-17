@@ -205,6 +205,7 @@ class Quiz(BaseModel):
     duration_seconds: int
     questions: List[dict]  # {q, options:[...], correct_index}
     created_at: str
+    batch_id: Optional[str] = None
 
 
 class QuizCreate(BaseModel):
@@ -212,6 +213,15 @@ class QuizCreate(BaseModel):
     subject: str
     duration_seconds: int = 300
     questions: List[dict]
+    batch_id: Optional[str] = None
+
+
+class QuizUpdate(BaseModel):
+    title: Optional[str] = None
+    subject: Optional[str] = None
+    duration_seconds: Optional[int] = None
+    questions: Optional[List[dict]] = None
+    batch_id: Optional[str] = None
 
 
 class QuizSubmitIn(BaseModel):
@@ -227,6 +237,7 @@ class Note(BaseModel):
     storage_path: str
     thumbnail: Optional[str] = None
     uploaded_at: str
+    batch_id: Optional[str] = None
 
 
 class AIChatIn(BaseModel):
@@ -402,7 +413,8 @@ async def end_live(live_id: str):
         storage_path=live["youtube_url"],  # store URL for recorded youtube video
         thumbnail="https://images.pexels.com/photos/5905902/pexels-photo-5905902.jpeg",
         uploaded_at=now_iso(),
-    ).dict()
+        batch_id=live.get("batch_id"),
+    ).dict
     await db.notes.insert_one(note)
     return {"success": True, "recorded_note_id": note["id"]}
 
@@ -484,12 +496,18 @@ async def list_chat(live_id: Optional[str] = None, limit: int = 50):
 # Notes / Files
 # ------------------------------------------------------------------
 @api_router.get("/notes", response_model=List[Note])
-async def list_notes(subject: Optional[str] = None, kind: Optional[str] = None):
+async def list_notes(subject: Optional[str] = None, kind: Optional[str] = None, batch_id: Optional[str] = None, batch_ids: Optional[str] = None):
     q: dict = {}
     if subject:
         q["subject"] = subject
     if kind:
         q["kind"] = kind
+    if batch_id:
+        q["batch_id"] = batch_id
+    if batch_ids:
+        ids = [x for x in batch_ids.split(",") if x]
+        if ids:
+            q["batch_id"] = {"$in": ids}
     items = await db.notes.find(q, {"_id": 0}).sort("uploaded_at", -1).to_list(500)
     return [Note(**n) for n in items]
 
@@ -508,6 +526,7 @@ async def upload_note(
     title: str = Form(...),
     subject: str = Form(...),
     kind: str = Form("pdf"),
+    batch_id: str = Form(""),
 ):
     data = await file.read()
     ext = (file.filename or "file.bin").rsplit(".", 1)[-1].lower()
@@ -521,10 +540,25 @@ async def upload_note(
         kind=kind,
         storage_path=path,
         uploaded_at=now_iso(),
+        batch_id=batch_id or None,
     ).dict()
     await db.notes.insert_one(note)
     note.pop("_id", None)
     return Note(**note)
+
+
+@api_router.put("/notes/{note_id}", response_model=Note)
+async def update_note(note_id: str, body: dict):
+    n = await db.notes.find_one({"id": note_id}, {"_id": 0})
+    if not n:
+        raise HTTPException(404, "Note not found")
+    updates = {k: v for k, v in body.items() if v is not None}
+    if not updates:
+        return Note(**n)
+    await db.notes.update_one({"id": note_id}, {"$set": updates})
+    updated = await db.notes.find_one({"id": note_id}, {"_id": 0})
+    updated.pop("_id", None)
+    return Note(**updated)
 
 
 @api_router.delete("/notes/{note_id}")
@@ -545,9 +579,16 @@ async def get_file(path: str):
 # Quizzes
 # ------------------------------------------------------------------
 @api_router.get("/quizzes", response_model=List[Quiz])
-async def list_quizzes():
-    items = await db.quizzes.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
-    return [Quiz(**q) for q in items]
+async def list_quizzes(batch_id: Optional[str] = None, batch_ids: Optional[str] = None):
+    q: dict = {}
+    if batch_id:
+        q["batch_id"] = batch_id
+    if batch_ids:
+        ids = [x for x in batch_ids.split(",") if x]
+        if ids:
+            q["batch_id"] = {"$in": ids}
+    items = await db.quizzes.find(q, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return [Quiz(**quiz) for quiz in items]
 
 
 @api_router.get("/quizzes/{quiz_id}", response_model=Quiz)
@@ -568,6 +609,28 @@ async def create_quiz(body: QuizCreate):
     await db.quizzes.insert_one(q)
     q.pop("_id", None)
     return Quiz(**q)
+
+
+@api_router.put("/quizzes/{quiz_id}", response_model=Quiz)
+async def update_quiz(quiz_id: str, body: QuizUpdate):
+    q = await db.quizzes.find_one({"id": quiz_id}, {"_id": 0})
+    if not q:
+        raise HTTPException(404, "Quiz not found")
+    updates = {k: v for k, v in body.dict().items() if v is not None}
+    if not updates:
+        return Quiz(**q)
+    await db.quizzes.update_one({"id": quiz_id}, {"$set": updates})
+    updated = await db.quizzes.find_one({"id": quiz_id}, {"_id": 0})
+    updated.pop("_id", None)
+    return Quiz(**updated)
+
+
+@api_router.delete("/quizzes/{quiz_id}")
+async def delete_quiz(quiz_id: str):
+    res = await db.quizzes.delete_one({"id": quiz_id})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Quiz not found")
+    return {"success": True}
 
 
 @api_router.post("/quizzes/{quiz_id}/submit")
@@ -600,6 +663,24 @@ async def submit_quiz(quiz_id: str, body: QuizSubmitIn):
 async def user_scores(user_id: str):
     items = await db.quiz_submissions.find({"user_id": user_id}, {"_id": 0}).sort("submitted_at", -1).to_list(200)
     return items
+
+
+@api_router.get("/users/{user_id}/content")
+async def user_content(user_id: str):
+    u = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not u:
+        raise HTTPException(404, "User not found")
+    batch_ids = u.get("enrolled_batches", [])
+    if not batch_ids:
+        return {"notes": [], "quizzes": [], "live_classes": []}
+    notes = await db.notes.find({"batch_id": {"$in": batch_ids}}, {"_id": 0}).sort("uploaded_at", -1).to_list(500)
+    quizzes = await db.quizzes.find({"batch_id": {"$in": batch_ids}}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    live = await db.live_classes.find({"batch_id": {"$in": batch_ids}}, {"_id": 0}).sort("started_at", -1).to_list(50)
+    return {
+        "notes": [Note(**n) for n in notes],
+        "quizzes": [Quiz(**q) for q in quizzes],
+        "live_classes": [LiveClass(**l) for l in live],
+    }
 
 
 # ------------------------------------------------------------------
@@ -940,6 +1021,7 @@ async def admin_analytics():
 # Seed
 # ------------------------------------------------------------------
 async def seed():
+    batch_ids: dict = {}  # subject -> batch_id
     if await db.batches.count_documents({}) == 0:
         seed_batches = [
             {
@@ -976,7 +1058,11 @@ async def seed():
         for b in seed_batches:
             batch = Batch(id=str(uuid.uuid4()), created_at=now_iso(), **b).dict()
             await db.batches.insert_one(batch)
+            batch_ids[b["subject"]] = batch["id"]
         logger.info("Seeded batches")
+    else:
+        async for b in db.batches.find({}, {"_id": 0, "id": 1, "subject": 1}):
+            batch_ids[b["subject"]] = b["id"]
 
     if await db.quizzes.count_documents({}) == 0:
         quizzes = [
@@ -984,6 +1070,7 @@ async def seed():
                 "title": "Physics — Laws of Motion",
                 "subject": "Physics",
                 "duration_seconds": 300,
+                "batch_id": batch_ids.get("Physics"),
                 "questions": [
                     {"q": "Which law defines force?", "options": ["First law", "Second law", "Third law", "Zeroth law"], "correct_index": 1},
                     {"q": "SI unit of force?", "options": ["Joule", "Newton", "Watt", "Pascal"], "correct_index": 1},
@@ -996,6 +1083,7 @@ async def seed():
                 "title": "Chemistry — Periodic Table",
                 "subject": "Chemistry",
                 "duration_seconds": 240,
+                "batch_id": batch_ids.get("Chemistry"),
                 "questions": [
                     {"q": "How many periods in modern periodic table?", "options": ["5", "6", "7", "8"], "correct_index": 2},
                     {"q": "Lightest element?", "options": ["Helium", "Hydrogen", "Lithium", "Oxygen"], "correct_index": 1},
@@ -1014,16 +1102,20 @@ async def seed():
         starter = [
             {"title": "Physics — Newton's Laws (Full Lecture)", "subject": "Physics", "kind": "video",
              "storage_path": "https://www.youtube.com/watch?v=kKKM8Y-u7ds",
-             "thumbnail": "https://images.pexels.com/photos/5905902/pexels-photo-5905902.jpeg"},
+             "thumbnail": "https://images.pexels.com/photos/5905902/pexels-photo-5905902.jpeg",
+             "batch_id": batch_ids.get("Physics")},
             {"title": "Maths — Calculus Crash Course", "subject": "Maths", "kind": "video",
              "storage_path": "https://www.youtube.com/watch?v=WUvTyaaNkzM",
-             "thumbnail": "https://images.pexels.com/photos/6238297/pexels-photo-6238297.jpeg"},
+             "thumbnail": "https://images.pexels.com/photos/6238297/pexels-photo-6238297.jpeg",
+             "batch_id": batch_ids.get("Maths")},
             {"title": "Chemistry — Periodic Table Notes", "subject": "Chemistry", "kind": "pdf",
              "storage_path": "https://www.africau.edu/images/default/sample.pdf",
-             "thumbnail": "https://images.pexels.com/photos/2280571/pexels-photo-2280571.jpeg"},
+             "thumbnail": "https://images.pexels.com/photos/2280571/pexels-photo-2280571.jpeg",
+             "batch_id": batch_ids.get("Chemistry")},
             {"title": "Biology — Human Digestive System", "subject": "Biology", "kind": "pdf",
              "storage_path": "https://www.africau.edu/images/default/sample.pdf",
-             "thumbnail": "https://images.pexels.com/photos/8386440/pexels-photo-8386440.jpeg"},
+             "thumbnail": "https://images.pexels.com/photos/8386440/pexels-photo-8386440.jpeg",
+             "batch_id": batch_ids.get("Biology")},
         ]
         for n in starter:
             note = Note(id=str(uuid.uuid4()), uploaded_at=now_iso(), **n).dict()

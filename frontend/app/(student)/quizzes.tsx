@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, FlatList, Pressable } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Icon from "@react-native-vector-icons/material-design-icons";
-import { API } from "@/src/api";
+import { API, getUser } from "@/src/api";
 import { colors } from "@/src/theme-tokens";
 
 export default function Quizzes() {
@@ -13,7 +13,14 @@ export default function Quizzes() {
 
   useFocusEffect(
     useCallback(() => {
-      API.get("/quizzes").then((r) => setItems(r.data || []));
+      (async () => {
+        const u = await getUser();
+        const batchIds = (u?.enrolled_batches || []).join(",");
+        const params: any = {};
+        if (batchIds) params.batch_ids = batchIds;
+        const r = await API.get("/quizzes", { params });
+        setItems(r.data || []);
+      })();
     }, []),
   );
 

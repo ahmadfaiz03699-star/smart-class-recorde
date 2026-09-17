@@ -15,6 +15,8 @@ export default function AdminLive() {
   const [title, setTitle] = useState("");
   const [subject, setSubject] = useState("Physics");
   const [url, setUrl] = useState("");
+  const [batchId, setBatchId] = useState("");
+  const [batches, setBatches] = useState<any[]>([]);
   const [live, setLive] = useState<any>(null);
 
   const [pollQ, setPollQ] = useState("");
@@ -22,23 +24,27 @@ export default function AdminLive() {
   const [currentPoll, setCurrentPoll] = useState<any>(null);
 
   const load = useCallback(async () => {
-    const [l, p] = await Promise.all([
+    const [l, p, b] = await Promise.all([
       API.get("/live/current").catch(() => ({ data: null })),
       API.get("/polls/current").catch(() => ({ data: null })),
+      API.get("/batches").catch(() => ({ data: [] })),
     ]);
     setLive(l.data);
     setCurrentPoll(p.data);
+    setBatches(b.data || []);
   }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const start = async () => {
     if (!title.trim() || !url.trim()) return notify("Missing fields");
+    if (!batchId) return notify("Select a batch", "Please choose which batch this live class belongs to.");
     try {
       const { data } = await API.post("/live/start", {
         title: title.trim(),
         subject,
         youtube_url: url.trim(),
+        batch_id: batchId,
       });
       setLive(data);
       notify("Live started", data.title);
@@ -118,6 +124,20 @@ export default function AdminLive() {
               </ScrollView>
               <Text style={styles.label}>YouTube URL</Text>
               <TextInput testID="live-url" style={styles.input} value={url} onChangeText={setUrl} placeholder="https://youtube.com/watch?v=…" autoCapitalize="none" placeholderTextColor={colors.muted} />
+              <Text style={styles.label}>Batch</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+                {batches.length === 0 && <Text style={styles.empty}>No batches yet. Create one in the Batches tab.</Text>}
+                {batches.map((b) => (
+                  <Pressable
+                    key={b.id}
+                    onPress={() => setBatchId(b.id)}
+                    style={[styles.chip, batchId === b.id && styles.chipActive]}
+                    testID={`live-batch-${b.id}`}
+                  >
+                    <Text style={[styles.chipText, batchId === b.id && { color: "#fff" }]} numberOfLines={1}>{b.title}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
               <Pressable onPress={start} style={styles.primary} testID="start-live">
                 <Icon name="broadcast" size={18} color="#fff" />
                 <Text style={styles.primaryText}>Go Live</Text>
@@ -191,6 +211,7 @@ const styles = StyleSheet.create({
   },
   chipActive: { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary },
   chipText: { color: colors.onSurface, fontWeight: "700", fontSize: 12 },
+  empty: { color: colors.muted, fontSize: 13 },
   primary: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
     backgroundColor: colors.brandPrimary, paddingVertical: 14, borderRadius: 999, marginTop: 16,
